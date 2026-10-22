@@ -1,5 +1,5 @@
 #property strict
-#property version "1.12"
+#property version "1.13"
 #include <Trade/Trade.mqh>
 CTrade trade;
 enum EXIT_MODE { EXIT_MIDDLE=0, EXIT_OPPOSITE=1, EXIT_POINTS=2 };
@@ -142,7 +142,7 @@ void OnChartEvent(const int id,const long &l,const double &d,const string &s){
 }
 void OnDeinit(const int reason){
  EventKillTimer();
- if(bandsAttached)ChartIndicatorDelete(0,0,IndicatorGetString(bb,INDICATOR_SHORTNAME));
+ // Chart indicator remains attached; releasing the handle below is sufficient.
  if(bb!=INVALID_HANDLE)IndicatorRelease(bb);
  if(adx!=INVALID_HANDLE)IndicatorRelease(adx);
  ObjectDelete(0,buttonName);
