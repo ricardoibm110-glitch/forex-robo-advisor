@@ -1,32 +1,37 @@
 #property strict
-#property version "1.20"
+#property version "1.21"
 #include <Trade/Trade.mqh>
 CTrade trade;
-enum EXIT_MODE { EXIT_MIDDLE=0, EXIT_OPPOSITE=1, EXIT_POINTS=2 };
-input ENUM_TIMEFRAMES Timeframe=PERIOD_M5;
-input int BBPeriod=20;
-input double BBDeviation=2.0;
-input int BBShift=0;
-input ENUM_APPLIED_PRICE BBPrice=PRICE_CLOSE;
-input EXIT_MODE ExitMode=EXIT_MIDDLE;
-input double ExitPoints=200;
-input double Lots=0.01;
-input double StopLossPoints=300;
-input double DailyProfitLimit=30.0;
-input double DailyLossLimit=30.0;
-input int MaxSpreadPoints=30;
-input bool UseTrendFilter=false;
-input int ADXPeriod=14;
-input double MaxADX=25.0;
-input bool UseExpansionFilter=false;
-input double MaxWidthExpansion=1.20;
-input ulong MagicNumber=20261021;
-input bool StartEnabled=true;
-enum ENTRY_MODE { ENTRY_OUTSIDE=0, ENTRY_REENTRY=1 };
-input ENTRY_MODE EntryMode=ENTRY_OUTSIDE;
-input int CooldownBars=0;
-input bool ShowPanel=true;
-input bool ShowBollingerOnChart=true;
+enum EXIT_MODE { EXIT_MIDDLE=0, // Saida na media central
+ EXIT_OPPOSITE=1, // Saida na banda oposta
+ EXIT_POINTS=2 // Saida por pontos
+};
+input ENUM_TIMEFRAMES Timeframe=PERIOD_M5; // Periodo grafico dos sinais
+input int BBPeriod=20; // Bollinger - Periodo
+input double BBDeviation=2.0; // Bollinger - Desvio padrao
+input int BBShift=0; // Bollinger - Deslocamento
+input ENUM_APPLIED_PRICE BBPrice=PRICE_CLOSE; // Bollinger - Preco aplicado
+input EXIT_MODE ExitMode=EXIT_MIDDLE; // Tipo de saida
+input double ExitPoints=200; // Alvo de saida em pontos
+input double Lots=0.01; // Lote por operacao
+input double StopLossPoints=300; // Stop loss em pontos
+input double DailyProfitLimit=30.0; // Limite de lucro diario
+input double DailyLossLimit=30.0; // Limite de perda diaria
+input int MaxSpreadPoints=30; // Spread maximo em pontos
+input bool UseTrendFilter=false; // Ativar filtro de tendencia ADX
+input int ADXPeriod=14; // ADX - Periodo
+input double MaxADX=25.0; // ADX - Valor maximo
+input bool UseExpansionFilter=false; // Ativar filtro de expansao BB
+input double MaxWidthExpansion=1.20; // Expansao maxima das bandas
+input ulong MagicNumber=20261021; // Identificador do robo
+input bool StartEnabled=true; // Iniciar robo ativo
+enum ENTRY_MODE { ENTRY_OUTSIDE=0, // Fechamento fora da banda
+ ENTRY_REENTRY=1 // Retorno para dentro da banda
+};
+input ENTRY_MODE EntryMode=ENTRY_OUTSIDE; // Modo de entrada
+input int CooldownBars=0; // Intervalo entre entradas (velas)
+input bool ShowPanel=true; // Exibir painel no grafico
+input bool ShowBollingerOnChart=true; // Mostrar bandas no grafico
 int bb=INVALID_HANDLE,adx=INVALID_HANDLE;
 bool enabled=true;
 datetime lastBar=0;
