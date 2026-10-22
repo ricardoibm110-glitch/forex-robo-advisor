@@ -1,5 +1,5 @@
 #property strict
-#property version "1.00"
+#property version "1.10"
 #include <Trade/Trade.mqh>
 CTrade trade;
 enum EXIT_MODE { EXIT_MIDDLE=0, EXIT_OPPOSITE=1, EXIT_POINTS=2 };
@@ -22,10 +22,68 @@ input bool UseExpansionFilter=true;
 input double MaxWidthExpansion=1.20;
 input ulong MagicNumber=20261021;
 input bool StartEnabled=true;
+input bool ShowPanel=true;
+input bool ShowBollingerOnChart=true;
 int bb=INVALID_HANDLE,adx=INVALID_HANDLE;
 bool enabled=true;
 datetime lastBar=0;
 string buttonName="BB_EA_TOGGLE";
+string panelPrefix="BB_ADVISOR_PANEL_";
+bool bandsAttached=false;
+datetime ServerDayStart(){
+ MqlDateTime t; TimeToStruct(TimeCurrent(),t);
+ t.hour=0;t.min=0;t.sec=0;
+ return StructToTime(t);
+}
+double FloatingPL(){
+ double sum=0;
+ for(int i=PositionsTotal()-1;i>=0;i--){
+  ulong ticket=PositionGetTicket(i);
+  if(ticket>0 && PositionGetString(POSITION_SYMBOL)==_Symbol && (ulong)PositionGetInteger(POSITION_MAGIC)==MagicNumber)
+   sum+=PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP);
+ }
+ return sum;
+}
+void PanelLabel(string key,string value,int y,color clr=clrWhite){
+ string name=panelPrefix+key;
+ if(ObjectFind(0,name)<0)ObjectCreate(0,name,OBJ_LABEL,0,0,0);
+ ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+ ObjectSetInteger(0,name,OBJPROP_XDISTANCE,22);
+ ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+ ObjectSetInteger(0,name,OBJPROP_COLOR,clr);
+ ObjectSetInteger(0,name,OBJPROP_FONTSIZE,10);
+ ObjectSetString(0,name,OBJPROP_FONT,"Arial");
+ ObjectSetString(0,name,OBJPROP_TEXT,value);
+ ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+}
+void UpdatePanel(){
+ if(!ShowPanel)return;
+ string bg=panelPrefix+"BG";
+ if(ObjectFind(0,bg)<0)ObjectCreate(0,bg,OBJ_RECTANGLE_LABEL,0,0,0);
+ ObjectSetInteger(0,bg,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+ ObjectSetInteger(0,bg,OBJPROP_XDISTANCE,12);
+ ObjectSetInteger(0,bg,OBJPROP_YDISTANCE,14);
+ ObjectSetInteger(0,bg,OBJPROP_XSIZE,265);
+ ObjectSetInteger(0,bg,OBJPROP_YSIZE,250);
+ ObjectSetInteger(0,bg,OBJPROP_BGCOLOR,C'24,31,44');
+ ObjectSetInteger(0,bg,OBJPROP_COLOR,clrSlateGray);
+ ObjectSetInteger(0,bg,OBJPROP_BACK,false);
+ ObjectSetInteger(0,bg,OBJPROP_SELECTABLE,false);
+ double realized=DayPL(),floating=FloatingPL(),total=realized+floating;
+ bool stopped=(DailyProfitLimit>0 && total>=DailyProfitLimit)||(DailyLossLimit>0 && total<=-DailyLossLimit);
+ PanelLabel("TITLE","BB FOREX ADVISOR  |  "+_Symbol,20,clrAqua);
+ PanelLabel("STATUS",enabled?(stopped?"LIMITE DIARIO ATINGIDO":"ROBO ATIVO"):"ROBO PAUSADO",66,enabled&&!stopped?clrLime:clrOrange);
+ PanelLabel("REALIZED","Resultado fechado: "+DoubleToString(realized,2),91,realized>=0?clrLime:clrTomato);
+ PanelLabel("FLOAT","Resultado aberto: "+DoubleToString(floating,2),113,floating>=0?clrLime:clrTomato);
+ PanelLabel("TOTAL","Total do dia: "+DoubleToString(total,2),135,total>=0?clrLime:clrTomato);
+ PanelLabel("PROFIT","Meta lucro: "+DoubleToString(DailyProfitLimit,2)+" | Falta: "+DoubleToString(MathMax(0,DailyProfitLimit-total),2),160);
+ PanelLabel("LOSS","Perda maxima: "+DoubleToString(DailyLossLimit,2)+" | Margem: "+DoubleToString(MathMax(0,DailyLossLimit+total),2),182);
+ PanelLabel("CONFIG","Lote: "+DoubleToString(Lots,2)+" | BB: "+IntegerToString(BBPeriod)+" / "+DoubleToString(BBDeviation,2),205);
+ PanelLabel("NOTE","Valores na moeda da conta | dia do servidor",236,clrSilver);
+ ChartRedraw();
+}
+void OnTimer(){UpdatePanel();}
+
 int OnInit(){
  if(BBPeriod<2 || BBDeviation<=0 || Lots<=0 || ExitPoints<=0 || StopLossPoints<=0 || MaxWidthExpansion<=0) return INIT_PARAMETERS_INCORRECT;
  bb=iBands(_Symbol,Timeframe,BBPeriod,BBShift,BBDeviation,BBPrice);
@@ -37,23 +95,37 @@ int OnInit(){
  ObjectCreate(0,buttonName,OBJ_BUTTON,0,0,0);
  ObjectSetInteger(0,buttonName,OBJPROP_CORNER,CORNER_LEFT_UPPER);
  ObjectSetInteger(0,buttonName,OBJPROP_XDISTANCE,15);
- ObjectSetInteger(0,buttonName,OBJPROP_YDISTANCE,25);
+ ObjectSetInteger(0,buttonName,OBJPROP_YDISTANCE,41);
  ObjectSetInteger(0,buttonName,OBJPROP_XSIZE,145);
  ObjectSetInteger(0,buttonName,OBJPROP_YSIZE,30);
  UpdateButton();
+ if(ShowBollingerOnChart && Period()==Timeframe){
+  bandsAttached=ChartIndicatorAdd(0,0,bb);
+  if(!bandsAttached)Print("Nao foi possivel exibir Bollinger no grafico: ",GetLastError());
+ }else if(ShowBollingerOnChart)Print("Para exibir BB no grafico, selecione o mesmo timeframe configurado no EA.");
+ EventSetTimer(1);
+ UpdatePanel();
  return INIT_SUCCEEDED;
 }
 void UpdateButton(){
  ObjectSetString(0,buttonName,OBJPROP_TEXT,enabled?"BB EA: ATIVO":"BB EA: PAUSADO");
  ObjectSetInteger(0,buttonName,OBJPROP_BGCOLOR,enabled?clrGreen:clrFireBrick);
+ UpdatePanel();
  ChartRedraw();
 }
 void OnChartEvent(const int id,const long &l,const double &d,const string &s){
  if(id==CHARTEVENT_OBJECT_CLICK && s==buttonName){enabled=!enabled;UpdateButton();ObjectSetInteger(0,buttonName,OBJPROP_STATE,false);}
 }
-void OnDeinit(const int reason){if(bb!=INVALID_HANDLE)IndicatorRelease(bb);if(adx!=INVALID_HANDLE)IndicatorRelease(adx);ObjectDelete(0,buttonName);}
+void OnDeinit(const int reason){
+ EventKillTimer();
+ if(bandsAttached)ChartIndicatorDelete(0,0,IndicatorGetString(bb,INDICATOR_SHORTNAME));
+ if(bb!=INVALID_HANDLE)IndicatorRelease(bb);
+ if(adx!=INVALID_HANDLE)IndicatorRelease(adx);
+ ObjectDelete(0,buttonName);
+ ObjectsDeleteAll(0,panelPrefix);
+}
 double DayPL(){
- datetime day=iTime(_Symbol,PERIOD_D1,0);
+ datetime day=ServerDayStart();
  if(!HistorySelect(day,TimeCurrent()))return 0;
  double total=0;
  for(int i=0;i<HistoryDealsTotal();i++){
@@ -71,6 +143,7 @@ bool OwnPosition(ulong &ticket){
  return false;
 }
 void OnTick(){
+ UpdatePanel();
  if(!enabled)return;
  double mid[],upper[],lower[];
  ArraySetAsSeries(mid,true);ArraySetAsSeries(upper,true);ArraySetAsSeries(lower,true);
@@ -87,7 +160,7 @@ void OnTick(){
  datetime bar=iTime(_Symbol,Timeframe,0);
  if(bar==0 || bar==lastBar)return;
  lastBar=bar;
- double pl=DayPL();
+ double pl=DayPL()+FloatingPL();
  if((DailyProfitLimit>0 && pl>=DailyProfitLimit)||(DailyLossLimit>0 && pl<=-DailyLossLimit))return;
  if((SymbolInfoInteger(_Symbol,SYMBOL_SPREAD)>MaxSpreadPoints))return;
  if(UseTrendFilter){
