@@ -1,5 +1,5 @@
 #property strict
-#property version "1.11"
+#property version "1.12"
 #include <Trade/Trade.mqh>
 CTrade trade;
 enum EXIT_MODE { EXIT_MIDDLE=0, EXIT_OPPOSITE=1, EXIT_POINTS=2 };
@@ -56,43 +56,54 @@ double FloatingPL(){
  }
  return sum;
 }
-void PanelLabel(string key,string value,int y,color clr=clrWhite){
+void PanelLabel(string key,string value,int x,int y,int fontSize,color clr,bool bold=false){
  string name=panelPrefix+key;
  if(ObjectFind(0,name)<0)ObjectCreate(0,name,OBJ_LABEL,0,0,0);
  ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
- ObjectSetInteger(0,name,OBJPROP_XDISTANCE,22);
+ ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
  ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
  ObjectSetInteger(0,name,OBJPROP_COLOR,clr);
- ObjectSetInteger(0,name,OBJPROP_FONTSIZE,10);
- ObjectSetString(0,name,OBJPROP_FONT,"Arial");
+ ObjectSetInteger(0,name,OBJPROP_FONTSIZE,fontSize);
+ ObjectSetString(0,name,OBJPROP_FONT,bold?"Arial Bold":"Arial");
  ObjectSetString(0,name,OBJPROP_TEXT,value);
  ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+ ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+}
+void PanelBox(string key,int x,int y,int w,int h,color fill){
+ string name=panelPrefix+key;
+ if(ObjectFind(0,name)<0)ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
+ ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+ ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+ ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+ ObjectSetInteger(0,name,OBJPROP_XSIZE,w);
+ ObjectSetInteger(0,name,OBJPROP_YSIZE,h);
+ ObjectSetInteger(0,name,OBJPROP_BGCOLOR,fill);
+ ObjectSetInteger(0,name,OBJPROP_COLOR,fill);
+ ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+ ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
 }
 void UpdatePanel(){
  if(!ShowPanel)return;
- string bg=panelPrefix+"BG";
- if(ObjectFind(0,bg)<0)ObjectCreate(0,bg,OBJ_RECTANGLE_LABEL,0,0,0);
- ObjectSetInteger(0,bg,OBJPROP_CORNER,CORNER_LEFT_UPPER);
- ObjectSetInteger(0,bg,OBJPROP_XDISTANCE,12);
- ObjectSetInteger(0,bg,OBJPROP_YDISTANCE,14);
- ObjectSetInteger(0,bg,OBJPROP_XSIZE,265);
- ObjectSetInteger(0,bg,OBJPROP_YSIZE,250);
- ObjectSetInteger(0,bg,OBJPROP_BGCOLOR,C'24,31,44');
- ObjectSetInteger(0,bg,OBJPROP_COLOR,clrSlateGray);
- ObjectSetInteger(0,bg,OBJPROP_BACK,false);
- ObjectSetInteger(0,bg,OBJPROP_SELECTABLE,false);
  double realized=DayPL(),floating=FloatingPL(),total=realized+floating;
  UpdateExtremes(total);
  bool stopped=(DailyProfitLimit>0 && total>=DailyProfitLimit)||(DailyLossLimit>0 && total<=-DailyLossLimit);
- PanelLabel("TITLE","BB FOREX ADVISOR  |  "+_Symbol,20,clrAqua);
- PanelLabel("STATUS",enabled?(stopped?"LIMITE DIARIO ATINGIDO":"ROBO ATIVO"):"ROBO PAUSADO",66,enabled&&!stopped?clrLime:clrOrange);
- PanelLabel("REALIZED","Resultado fechado: "+DoubleToString(realized,2),91,realized>=0?clrLime:clrTomato);
- PanelLabel("FLOAT","Resultado aberto: "+DoubleToString(floating,2),113,floating>=0?clrLime:clrTomato);
- PanelLabel("TOTAL","Total do dia: "+DoubleToString(total,2),135,total>=0?clrLime:clrTomato);
- PanelLabel("PROFIT","MAIOR GANHO DO DIA: "+DoubleToString(dayPeak,2),160,clrLime);
- PanelLabel("LOSS","MAIOR QUEDA DO DIA: "+DoubleToString(dayTrough,2),182,clrTomato);
- PanelLabel("CONFIG","Lote: "+DoubleToString(Lots,2)+" | BB: "+IntegerToString(BBPeriod)+" / "+DoubleToString(BBDeviation,2),205);
- PanelLabel("NOTE","Extremos observados com EA ativo | moeda conta",236,clrSilver);
+ string currency=AccountInfoString(ACCOUNT_CURRENCY);
+ PanelBox("BG",12,14,320,292,C'17,24,39');
+ PanelBox("HEADER",12,14,320,34,C'30,41,59');
+ PanelLabel("TITLE","BB  /  FOREX ADVISOR",25,23,11,clrWhite,true);
+ PanelLabel("PAIR",_Symbol+"  |  "+EnumToString(Timeframe),25,57,9,clrSilver);
+ PanelLabel("STATUS",enabled?(stopped?"LIMITE ATINGIDO":"OPERANDO"):"PAUSADO",223,57,9,enabled&&!stopped?clrLime:clrOrange,true);
+ PanelBox("MAIN",22,83,300,90,C'29,42,58');
+ PanelLabel("MAINLABEL","RESULTADO DO DIA",34,94,10,clrSilver,true);
+ PanelLabel("MAINVALUE",(total>=0?"+":"")+DoubleToString(total,2)+" "+currency,32,116,23,total>0?clrLime:(total<0?clrTomato:clrWhite),true);
+ PanelLabel("REALIZED","Fechado  "+DoubleToString(realized,2),25,185,10,clrSilver);
+ PanelLabel("FLOAT","Aberto  "+DoubleToString(floating,2),185,185,10,clrSilver);
+ PanelBox("DIVIDER",24,212,296,1,C'62,75,94');
+ PanelLabel("PEAKLABEL","PICO DE LUCRO",25,224,9,clrSilver);
+ PanelLabel("PEAKVALUE",(dayPeak>=0?"+":"")+DoubleToString(dayPeak,2),25,241,13,clrLime,true);
+ PanelLabel("DDLABEL","MAIOR QUEDA",187,224,9,clrSilver);
+ PanelLabel("DDVALUE",DoubleToString(dayTrough,2),187,241,13,clrTomato,true);
+ PanelLabel("FOOT","Lote "+DoubleToString(Lots,2)+"  |  BB "+IntegerToString(BBPeriod)+"/"+DoubleToString(BBDeviation,1)+"  |  "+currency,25,278,9,clrSilver);
  ChartRedraw();
 }
 void OnTimer(){UpdatePanel();}
@@ -107,8 +118,8 @@ int OnInit(){
  enabled=StartEnabled;
  ObjectCreate(0,buttonName,OBJ_BUTTON,0,0,0);
  ObjectSetInteger(0,buttonName,OBJPROP_CORNER,CORNER_LEFT_UPPER);
- ObjectSetInteger(0,buttonName,OBJPROP_XDISTANCE,15);
- ObjectSetInteger(0,buttonName,OBJPROP_YDISTANCE,41);
+ ObjectSetInteger(0,buttonName,OBJPROP_XDISTANCE,347);
+ ObjectSetInteger(0,buttonName,OBJPROP_YDISTANCE,21);
  ObjectSetInteger(0,buttonName,OBJPROP_XSIZE,145);
  ObjectSetInteger(0,buttonName,OBJPROP_YSIZE,30);
  UpdateButton();
