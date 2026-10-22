@@ -1,5 +1,5 @@
 #property strict
-#property version "1.10"
+#property version "1.11"
 #include <Trade/Trade.mqh>
 CTrade trade;
 enum EXIT_MODE { EXIT_MIDDLE=0, EXIT_OPPOSITE=1, EXIT_POINTS=2 };
@@ -30,6 +30,18 @@ datetime lastBar=0;
 string buttonName="BB_EA_TOGGLE";
 string panelPrefix="BB_ADVISOR_PANEL_";
 bool bandsAttached=false;
+double dayPeak=0,dayTrough=0;
+datetime extremaDay=0;
+bool extremaInitialized=false;
+void UpdateExtremes(double total){
+ datetime day=ServerDayStart();
+ if(day!=extremaDay){
+  extremaDay=day;dayPeak=total;dayTrough=total;extremaInitialized=true;
+ }
+ if(!extremaInitialized){dayPeak=total;dayTrough=total;extremaInitialized=true;}
+ dayPeak=MathMax(dayPeak,total);
+ dayTrough=MathMin(dayTrough,total);
+}
 datetime ServerDayStart(){
  MqlDateTime t; TimeToStruct(TimeCurrent(),t);
  t.hour=0;t.min=0;t.sec=0;
@@ -70,16 +82,17 @@ void UpdatePanel(){
  ObjectSetInteger(0,bg,OBJPROP_BACK,false);
  ObjectSetInteger(0,bg,OBJPROP_SELECTABLE,false);
  double realized=DayPL(),floating=FloatingPL(),total=realized+floating;
+ UpdateExtremes(total);
  bool stopped=(DailyProfitLimit>0 && total>=DailyProfitLimit)||(DailyLossLimit>0 && total<=-DailyLossLimit);
  PanelLabel("TITLE","BB FOREX ADVISOR  |  "+_Symbol,20,clrAqua);
  PanelLabel("STATUS",enabled?(stopped?"LIMITE DIARIO ATINGIDO":"ROBO ATIVO"):"ROBO PAUSADO",66,enabled&&!stopped?clrLime:clrOrange);
  PanelLabel("REALIZED","Resultado fechado: "+DoubleToString(realized,2),91,realized>=0?clrLime:clrTomato);
  PanelLabel("FLOAT","Resultado aberto: "+DoubleToString(floating,2),113,floating>=0?clrLime:clrTomato);
  PanelLabel("TOTAL","Total do dia: "+DoubleToString(total,2),135,total>=0?clrLime:clrTomato);
- PanelLabel("PROFIT","Meta lucro: "+DoubleToString(DailyProfitLimit,2)+" | Falta: "+DoubleToString(MathMax(0,DailyProfitLimit-total),2),160);
- PanelLabel("LOSS","Perda maxima: "+DoubleToString(DailyLossLimit,2)+" | Margem: "+DoubleToString(MathMax(0,DailyLossLimit+total),2),182);
+ PanelLabel("PROFIT","MAIOR GANHO DO DIA: "+DoubleToString(dayPeak,2),160,clrLime);
+ PanelLabel("LOSS","MAIOR QUEDA DO DIA: "+DoubleToString(dayTrough,2),182,clrTomato);
  PanelLabel("CONFIG","Lote: "+DoubleToString(Lots,2)+" | BB: "+IntegerToString(BBPeriod)+" / "+DoubleToString(BBDeviation,2),205);
- PanelLabel("NOTE","Valores na moeda da conta | dia do servidor",236,clrSilver);
+ PanelLabel("NOTE","Extremos observados com EA ativo | moeda conta",236,clrSilver);
  ChartRedraw();
 }
 void OnTimer(){UpdatePanel();}
