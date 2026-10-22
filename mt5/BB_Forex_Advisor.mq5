@@ -1,5 +1,5 @@
 #property strict
-#property version "1.13"
+#property version "1.20"
 #include <Trade/Trade.mqh>
 CTrade trade;
 enum EXIT_MODE { EXIT_MIDDLE=0, EXIT_OPPOSITE=1, EXIT_POINTS=2 };
@@ -15,18 +15,22 @@ input double StopLossPoints=300;
 input double DailyProfitLimit=30.0;
 input double DailyLossLimit=30.0;
 input int MaxSpreadPoints=30;
-input bool UseTrendFilter=true;
+input bool UseTrendFilter=false;
 input int ADXPeriod=14;
 input double MaxADX=25.0;
-input bool UseExpansionFilter=true;
+input bool UseExpansionFilter=false;
 input double MaxWidthExpansion=1.20;
 input ulong MagicNumber=20261021;
 input bool StartEnabled=true;
+enum ENTRY_MODE { ENTRY_OUTSIDE=0, ENTRY_REENTRY=1 };
+input ENTRY_MODE EntryMode=ENTRY_OUTSIDE;
+input int CooldownBars=0;
 input bool ShowPanel=true;
 input bool ShowBollingerOnChart=true;
 int bb=INVALID_HANDLE,adx=INVALID_HANDLE;
 bool enabled=true;
 datetime lastBar=0;
+datetime lastEntryBar=0;
 string buttonName="BB_EA_TOGGLE";
 string panelPrefix="BB_ADVISOR_PANEL_";
 bool bandsAttached=false;
@@ -168,7 +172,6 @@ bool OwnPosition(ulong &ticket){
 }
 void OnTick(){
  UpdatePanel();
- if(!enabled)return;
  double mid[],upper[],lower[];
  ArraySetAsSeries(mid,true);ArraySetAsSeries(upper,true);ArraySetAsSeries(lower,true);
  if(CopyBuffer(bb,0,0,4,mid)<4 || CopyBuffer(bb,1,0,4,upper)<4 || CopyBuffer(bb,2,0,4,lower)<4)return;
@@ -181,9 +184,11 @@ void OnTick(){
   if(ExitMode!=EXIT_POINTS && ((side==POSITION_TYPE_BUY && price>= (ExitMode==EXIT_OPPOSITE?upper[0]:target)) || (side==POSITION_TYPE_SELL && price<= (ExitMode==EXIT_OPPOSITE?lower[0]:target))))trade.PositionClose(ticket);
   return;
  }
+ if(!enabled)return;
  datetime bar=iTime(_Symbol,Timeframe,0);
  if(bar==0 || bar==lastBar)return;
  lastBar=bar;
+ if(CooldownBars>0 && lastEntryBar>0 && (bar-lastEntryBar)<CooldownBars*PeriodSeconds(Timeframe))return;
  double pl=DayPL()+FloatingPL();
  if((DailyProfitLimit>0 && pl>=DailyProfitLimit)||(DailyLossLimit>0 && pl<=-DailyLossLimit))return;
  if((SymbolInfoInteger(_Symbol,SYMBOL_SPREAD)>MaxSpreadPoints))return;
@@ -197,6 +202,11 @@ void OnTick(){
  }
  double close1=iClose(_Symbol,Timeframe,1);
  bool buy=close1<lower[1],sell=close1>upper[1];
+ if(EntryMode==ENTRY_REENTRY){
+  double close2=iClose(_Symbol,Timeframe,2);
+  buy=close2<lower[2] && close1>=lower[1];
+  sell=close2>upper[2] && close1<=upper[1];
+ }
  if(!buy&&!sell)return;
  double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK),bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
  double volumeStep=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
@@ -205,6 +215,9 @@ void OnTick(){
  double slDistance=MathMax(StopLossPoints*_Point,(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
  double tpDistance=ExitPoints*_Point;
  if(ExitMode==EXIT_POINTS && tpDistance<(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point)return;
- if(buy)trade.Buy(Lots,_Symbol,0,NormalizeDouble(ask-slDistance,_Digits),ExitMode==EXIT_POINTS?NormalizeDouble(ask+tpDistance,_Digits):0,"BB mean reversion");
- else trade.Sell(Lots,_Symbol,0,NormalizeDouble(bid+slDistance,_Digits),ExitMode==EXIT_POINTS?NormalizeDouble(bid-tpDistance,_Digits):0,"BB mean reversion");
+ bool sent=false;
+ if(buy)sent=trade.Buy(Lots,_Symbol,0,NormalizeDouble(ask-slDistance,_Digits),ExitMode==EXIT_POINTS?NormalizeDouble(ask+tpDistance,_Digits):0,"BB mean reversion");
+ else sent=trade.Sell(Lots,_Symbol,0,NormalizeDouble(bid+slDistance,_Digits),ExitMode==EXIT_POINTS?NormalizeDouble(bid-tpDistance,_Digits):0,"BB mean reversion");
+ if(sent && (trade.ResultRetcode()==TRADE_RETCODE_DONE || trade.ResultRetcode()==TRADE_RETCODE_DONE_PARTIAL))lastEntryBar=bar;
+ else if(!sent)Print("Ordem rejeitada: ",trade.ResultRetcodeDescription());
 }
