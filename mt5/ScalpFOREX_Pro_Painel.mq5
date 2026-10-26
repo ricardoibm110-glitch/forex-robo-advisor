@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Lovable"
 #property link      "https://lovable.dev"
-#property version   "1.12"
+#property version   "1.13"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -39,12 +39,18 @@ input int     InpPauseMinutesAfterLoss= 25;           // Minutos de pausa
 input group "=== Indicadores e Tendencia ==="
 input ENUM_TIMEFRAMES InpTimeframe    = PERIOD_M1;    // Tempo gráfico
 input int     InpEmaPeriod            = 21;           // Período da EMA
-input bool    InpUseHigherTrend       = false;         // Confirmar tendencia em periodo maior?
-input ENUM_TIMEFRAMES InpHigherTimeframe = PERIOD_M15; // Periodo da tendencia maior
-input bool    InpUseAtrFilter         = false;         // Evitar volatilidade muito baixa?
+input bool    InpUseHigherTrend       = true;         // Confirmar tendencia em periodo maior?
+input ENUM_TIMEFRAMES InpHigherTimeframe = PERIOD_M5; // Periodo da tendencia maior
+input bool    InpUseAtrFilter         = true;         // Evitar volatilidade muito baixa?
 input int     InpAtrPeriod            = 14;           // Periodo do ATR
 input double  InpMinAtrPts            = 50.0;         // ATR minimo em pontos
-input int     InpMinBarsBetweenTrades = 2;            // Barras minimas entre entradas
+input int     InpMinBarsBetweenTrades = 3;            // Barras entre entradas
+input bool    InpUsePullbackEntry     = true;         // Exigir recuo ate EMA antes da retomada?
+input double  InpPullbackToleranceATR = 0.30;         // Distancia maxima do recuo a EMA (ATR)
+input bool    InpUseATRStops          = true;         // SL e TP proporcionais a volatilidade?
+input double  InpATRStopMult          = 1.5;          // Stop em multiplos de ATR
+input double  InpATRTargetMult        = 2.0;          // Alvo em multiplos de ATR
+input double  InpMaxSpreadATRRatio    = 0.25;         // Spread maximo como fracao ATR (0 desliga)            // Barras minimas entre entradas
 input bool    InpShowEMAOnChart       = true;         // Mostrar EMA no grafico?
 input int     InpMinCandleSize        = 30;           // Tamanho mín. do candle (pts)
 input double  InpMinEmaSlopePts       = 1.0;          // Inclinação mínima (pts)
@@ -666,11 +672,13 @@ int OnInit()
       handleHigherEMA=iMA(_Symbol,InpHigherTimeframe,InpEmaPeriod,0,MODE_EMA,PRICE_CLOSE);
       if(handleHigherEMA==INVALID_HANDLE) { Print("Erro ao criar EMA M15."); return INIT_FAILED; }
    }
-   if(InpUseAtrFilter)
+   if(InpUseAtrFilter || InpUseATRStops || InpUsePullbackEntry || InpMaxSpreadATRRatio>0)
    {
       handleATR=iATR(_Symbol,InpTimeframe,InpAtrPeriod);
       if(handleATR==INVALID_HANDLE) { Print("Erro ao criar ATR."); return INIT_FAILED; }
    }
+   if(InpATRStopMult<=0 || InpATRTargetMult<=0 || InpPullbackToleranceATR<0 || InpMaxSpreadATRRatio<0)
+      return INIT_PARAMETERS_INCORRECT;
    if(InpShowEMAOnChart && Period()==InpTimeframe) ChartIndicatorAdd(0,0,handleEMA);
    PrintFormat("ScalpFOREX v1.12 iniciado: %s, sinal %s, spread atual %.1f pts, limite %d (0=desativado), filtro M15=%s, ATR=%s",_Symbol,EnumToString(InpTimeframe),(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/g_point,InpMaxSpreadPts,InpUseHigherTrend?"ON":"OFF",InpUseAtrFilter?"ON":"OFF");
 
@@ -823,19 +831,36 @@ void OnTick()
       trendBuy=(higherClose>higher[0] && higher[0]>higher[1]);
       trendSell=(higherClose<higher[0] && higher[0]<higher[1]);
    }
-   if(InpUseAtrFilter)
+   double atrPrice=0.0;
+   if(handleATR!=INVALID_HANDLE)
    {
       double atr[];
-      if(CopyBuffer(handleATR,0,1,1,atr)!=1) { Print("Aguardando ATR"); return; }
-      if(atr[0]/g_point<InpMinAtrPts)
+      if(CopyBuffer(handleATR,0,1,1,atr)!=1 || atr[0]<=0) { Print("Aguardando ATR"); return; }
+      atrPrice=atr[0];
+      if(InpUseAtrFilter && atrPrice/g_point<InpMinAtrPts)
       { AuditLog("FILTER","LOW_ATR",AuditKey()); return; }
+      if(InpMaxSpreadATRRatio>0 && (ask-bid)>atrPrice*InpMaxSpreadATRRatio)
+      { AuditLog("FILTER","SPREAD_ATR",AuditKey()); return; }
    }
+   bool pullbackBuy=true, pullbackSell=true;
+   if(InpUsePullbackEntry)
+   {
+      // Candle anterior ao sinal deve ter tocado ou se aproximado da EMA.
+      double prevLow=rates[2].low, prevHigh=rates[2].high, prevClose=rates[2].close;
+      double tol=atrPrice*InpPullbackToleranceATR;
+      pullbackBuy=(prevLow<=ema2+tol && prevClose>=ema2-tol && close1>rates[2].high);
+      pullbackSell=(prevHigh>=ema2-tol && prevClose<=ema2+tol && close1<rates[2].low);
+   }
+   double minStop=(g_stopLevel+2)*g_point;
+   double stopDist=InpUseATRStops ? MathMax(atrPrice*InpATRStopMult,minStop) : InpStopLossPts*g_point;
+   double targetDist=InpUseATRStops ? MathMax(atrPrice*InpATRTargetMult,minStop) : InpTakeProfitPts*g_point;
+   if(stopDist<=minStop || targetDist<=minStop) { AuditLog("FILTER","STOP_LEVEL",AuditKey()); return; }
 
    // COMPRA
-   if(trendBuy && close1 > open1 && close1 > ema1 && open1 >= ema1 && emaDiffPts >= InpMinEmaSlopePts)
+   if(trendBuy && pullbackBuy && close1 > open1 && close1 > ema1 && open1 >= ema1 && emaDiffPts >= InpMinEmaSlopePts)
    {
-      double sl = NormPrice(ask - InpStopLossPts   * g_point);
-      double tp = NormPrice(ask + InpTakeProfitPts * g_point);
+      double sl = NormPrice(ask - stopDist);
+      double tp = NormPrice(ask + targetDist);
       MqlTick before={}; SymbolInfoTick(_Symbol,before); ulong started=GetMicrosecondCount();
       bool ok=trade.Buy(InpLots, _Symbol, 0.0, sl, tp, "Scalp FOREX Pro - Buy");
       AuditTradeResult("ENTRY",ok,before,started,AuditKey());
@@ -845,10 +870,10 @@ void OnTick()
          PrintFormat("Falha na compra: ret=%d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription());
    }
    // VENDA
-   else if(trendSell && close1 < open1 && close1 < ema1 && open1 <= ema1 && -emaDiffPts >= InpMinEmaSlopePts)
+   else if(trendSell && pullbackSell && close1 < open1 && close1 < ema1 && open1 <= ema1 && -emaDiffPts >= InpMinEmaSlopePts)
    {
-      double sl = NormPrice(bid + InpStopLossPts   * g_point);
-      double tp = NormPrice(bid - InpTakeProfitPts * g_point);
+      double sl = NormPrice(bid + stopDist);
+      double tp = NormPrice(bid - targetDist);
       MqlTick before={}; SymbolInfoTick(_Symbol,before); ulong started=GetMicrosecondCount();
       bool ok=trade.Sell(InpLots, _Symbol, 0.0, sl, tp, "Scalp FOREX Pro - Sell");
       AuditTradeResult("ENTRY",ok,before,started,AuditKey());
