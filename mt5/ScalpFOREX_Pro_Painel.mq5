@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//|                                     ScalpFOREX_Pro_Painel v1.0.mq5 |
-//|   v1.0: diagnóstico CSV de sinais, ordens e custos demo/real     |
+//|                                     ScalpFOREX_Pro_Painel v1.1.mq5 |
+//|   v1.1: diagnóstico CSV de sinais, ordens e custos demo/real     |
 //|   v2.5: meta fixa ativa o trailing — após bater a meta, o piso   |
 //|         de X% acompanha o maior saldo do dia; antes vale só o stop|
 //|   v2.4: gráfico do resultado acumulado após cada negociação     |
@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Lovable"
 #property link      "https://lovable.dev"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -39,6 +39,13 @@ input int     InpPauseMinutesAfterLoss= 25;           // Minutos de pausa
 input group "=== Indicadores e Tendencia ==="
 input ENUM_TIMEFRAMES InpTimeframe    = PERIOD_M5;    // Tempo gráfico
 input int     InpEmaPeriod            = 21;           // Período da EMA
+input bool    InpUseHigherTrend       = true;         // Confirmar tendencia em periodo maior?
+input ENUM_TIMEFRAMES InpHigherTimeframe = PERIOD_M15; // Periodo da tendencia maior
+input bool    InpUseAtrFilter         = true;         // Evitar volatilidade muito baixa?
+input int     InpAtrPeriod            = 14;           // Periodo do ATR
+input double  InpMinAtrPts            = 50.0;         // ATR minimo em pontos
+input int     InpMinBarsBetweenTrades = 2;            // Barras minimas entre entradas
+input bool    InpShowEMAOnChart       = true;         // Mostrar EMA no grafico?
 input int     InpMinCandleSize        = 30;           // Tamanho mín. do candle (pts)
 input double  InpMinEmaSlopePts       = 1.0;          // Inclinação mínima (pts)
 
@@ -68,6 +75,8 @@ input int     InpPanelY               = 30;           // Posição Y
 
 //--- Globais
 int      handleEMA;
+int      handleHigherEMA=INVALID_HANDLE, handleATR=INVALID_HANDLE;
+datetime lastEntryTime=0;
 datetime lastBarTime   = 0;
 bool     dailyBlocked  = false;
 bool     targetHit     = false;     // meta do dia já foi batida (ativa o trailing)
@@ -786,7 +795,7 @@ void OnTick()
    if((high1-low1)/g_point<InpMinCandleSize) return;
 
    // COMPRA
-   if(close1 > open1 && close1 > ema1 && open1 >= ema1 && emaDiffPts >= InpMinEmaSlopePts)
+   if(trendBuy && close1 > open1 && close1 > ema1 && open1 >= ema1 && emaDiffPts >= InpMinEmaSlopePts)
    {
       double sl = NormPrice(ask - InpStopLossPts   * g_point);
       double tp = NormPrice(ask + InpTakeProfitPts * g_point);
@@ -799,7 +808,7 @@ void OnTick()
          PrintFormat("Falha na compra: ret=%d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription());
    }
    // VENDA
-   else if(close1 < open1 && close1 < ema1 && open1 <= ema1 && -emaDiffPts >= InpMinEmaSlopePts)
+   else if(trendSell && close1 < open1 && close1 < ema1 && open1 <= ema1 && -emaDiffPts >= InpMinEmaSlopePts)
    {
       double sl = NormPrice(bid + InpStopLossPts   * g_point);
       double tp = NormPrice(bid - InpTakeProfitPts * g_point);
