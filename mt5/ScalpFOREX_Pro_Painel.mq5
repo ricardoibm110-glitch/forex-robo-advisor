@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Lovable"
 #property link      "https://lovable.dev"
-#property version   "1.11"
+#property version   "1.12"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -30,18 +30,18 @@ input int     InpBreakevenLockPts     = 20;           // Pontos garantidos
 
 //--- CONTROLE DE OVERTRADING
 input group "=== Protecao Anti-Overtrading ==="
-input int     InpMaxSpreadPts         = 30;           // Spread maximo (pontos MT5)
+input int     InpMaxSpreadPts         = 0;           // Spread maximo (pontos MT5)
 input int     InpMaxDailyTrades       = 15;           // Máx. trades por dia
 input int     InpMaxConsecutiveLoss   = 2;            // Stops seguidos antes da pausa
 input int     InpPauseMinutesAfterLoss= 25;           // Minutos de pausa
 
 //--- ESTRATÉGIA
 input group "=== Indicadores e Tendencia ==="
-input ENUM_TIMEFRAMES InpTimeframe    = PERIOD_M5;    // Tempo gráfico
+input ENUM_TIMEFRAMES InpTimeframe    = PERIOD_M1;    // Tempo gráfico
 input int     InpEmaPeriod            = 21;           // Período da EMA
-input bool    InpUseHigherTrend       = true;         // Confirmar tendencia em periodo maior?
+input bool    InpUseHigherTrend       = false;         // Confirmar tendencia em periodo maior?
 input ENUM_TIMEFRAMES InpHigherTimeframe = PERIOD_M15; // Periodo da tendencia maior
-input bool    InpUseAtrFilter         = true;         // Evitar volatilidade muito baixa?
+input bool    InpUseAtrFilter         = false;         // Evitar volatilidade muito baixa?
 input int     InpAtrPeriod            = 14;           // Periodo do ATR
 input double  InpMinAtrPts            = 50.0;         // ATR minimo em pontos
 input int     InpMinBarsBetweenTrades = 2;            // Barras minimas entre entradas
@@ -661,6 +661,18 @@ int OnInit()
 
    handleEMA = iMA(_Symbol, InpTimeframe, InpEmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
    if(handleEMA == INVALID_HANDLE) { Print("Erro ao criar EMA."); return INIT_FAILED; }
+   if(InpUseHigherTrend)
+   {
+      handleHigherEMA=iMA(_Symbol,InpHigherTimeframe,InpEmaPeriod,0,MODE_EMA,PRICE_CLOSE);
+      if(handleHigherEMA==INVALID_HANDLE) { Print("Erro ao criar EMA M15."); return INIT_FAILED; }
+   }
+   if(InpUseAtrFilter)
+   {
+      handleATR=iATR(_Symbol,InpTimeframe,InpAtrPeriod);
+      if(handleATR==INVALID_HANDLE) { Print("Erro ao criar ATR."); return INIT_FAILED; }
+   }
+   if(InpShowEMAOnChart && Period()==InpTimeframe) ChartIndicatorAdd(0,0,handleEMA);
+   PrintFormat("ScalpFOREX v1.12 iniciado: %s, sinal %s, spread atual %.1f pts, limite %d (0=desativado), filtro M15=%s, ATR=%s",_Symbol,EnumToString(InpTimeframe),(SymbolInfoDouble(_Symbol,SYMBOL_ASK)-SymbolInfoDouble(_Symbol,SYMBOL_BID))/g_point,InpMaxSpreadPts,InpUseHigherTrend?"ON":"OFF",InpUseAtrFilter?"ON":"OFF");
 
    currentDay = DayStart(TimeCurrent());
    AuditInit();
@@ -675,6 +687,8 @@ void OnDeinit(const int reason)
    { AuditDrain(); AuditLog("SESSION_END","reason="+(string)reason); AuditFlush(); FileClose(auditHandle); auditHandle=INVALID_HANDLE; }
    EventKillTimer();
    IndicatorRelease(handleEMA);
+   if(handleHigherEMA!=INVALID_HANDLE) IndicatorRelease(handleHigherEMA);
+   if(handleATR!=INVALID_HANDLE) IndicatorRelease(handleATR);
    DestroyDashboard();
    ChartRedraw();
 }
@@ -796,7 +810,7 @@ void OnTick()
 
    // Filtros opcionais antes das entradas.
    if(InpMaxSpreadPts>0 && (ask-bid)/g_point>InpMaxSpreadPts)
-   { AuditLog("FILTER","SPREAD",AuditKey()); return; }
+   { AuditLog("FILTER","SPREAD",AuditKey()); PrintFormat("Entrada bloqueada: spread %.1f > limite %d pts",(ask-bid)/g_point,InpMaxSpreadPts); return; }
    if(InpMinBarsBetweenTrades>0 && lastEntryTime>0 &&
       (currentBarTime-lastEntryTime)<InpMinBarsBetweenTrades*PeriodSeconds(InpTimeframe))
    { AuditLog("FILTER","COOLDOWN",AuditKey()); return; }
@@ -804,7 +818,7 @@ void OnTick()
    if(InpUseHigherTrend)
    {
       double higher[]; ArraySetAsSeries(higher,true);
-      if(CopyBuffer(handleHigherEMA,0,1,2,higher)<2) return;
+      if(CopyBuffer(handleHigherEMA,0,1,2,higher)<2) { Print("Aguardando EMA M15"); return; }
       double higherClose=iClose(_Symbol,InpHigherTimeframe,1);
       trendBuy=(higherClose>higher[0] && higher[0]>higher[1]);
       trendSell=(higherClose<higher[0] && higher[0]<higher[1]);
@@ -812,7 +826,7 @@ void OnTick()
    if(InpUseAtrFilter)
    {
       double atr[];
-      if(CopyBuffer(handleATR,0,1,1,atr)!=1) return;
+      if(CopyBuffer(handleATR,0,1,1,atr)!=1) { Print("Aguardando ATR"); return; }
       if(atr[0]/g_point<InpMinAtrPts)
       { AuditLog("FILTER","LOW_ATR",AuditKey()); return; }
    }
