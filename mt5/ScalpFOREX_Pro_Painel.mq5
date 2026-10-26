@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Lovable"
 #property link      "https://lovable.dev"
-#property version   "1.10"
+#property version   "1.11"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -794,6 +794,29 @@ void OnTick()
    AuditLog("SIGNAL",signal,AuditKey(),rates[1].time,open1,high1,low1,close1,ema1,emaDiffPts,bid,ask);
    if((high1-low1)/g_point<InpMinCandleSize) return;
 
+   // Filtros opcionais antes das entradas.
+   if(InpMaxSpreadPts>0 && (ask-bid)/g_point>InpMaxSpreadPts)
+   { AuditLog("FILTER","SPREAD",AuditKey()); return; }
+   if(InpMinBarsBetweenTrades>0 && lastEntryTime>0 &&
+      (currentBarTime-lastEntryTime)<InpMinBarsBetweenTrades*PeriodSeconds(InpTimeframe))
+   { AuditLog("FILTER","COOLDOWN",AuditKey()); return; }
+   bool trendBuy=true, trendSell=true;
+   if(InpUseHigherTrend)
+   {
+      double higher[]; ArraySetAsSeries(higher,true);
+      if(CopyBuffer(handleHigherEMA,0,1,2,higher)<2) return;
+      double higherClose=iClose(_Symbol,InpHigherTimeframe,1);
+      trendBuy=(higherClose>higher[0] && higher[0]>higher[1]);
+      trendSell=(higherClose<higher[0] && higher[0]<higher[1]);
+   }
+   if(InpUseAtrFilter)
+   {
+      double atr[];
+      if(CopyBuffer(handleATR,0,1,1,atr)!=1) return;
+      if(atr[0]/g_point<InpMinAtrPts)
+      { AuditLog("FILTER","LOW_ATR",AuditKey()); return; }
+   }
+
    // COMPRA
    if(trendBuy && close1 > open1 && close1 > ema1 && open1 >= ema1 && emaDiffPts >= InpMinEmaSlopePts)
    {
@@ -802,8 +825,8 @@ void OnTick()
       MqlTick before={}; SymbolInfoTick(_Symbol,before); ulong started=GetMicrosecondCount();
       bool ok=trade.Buy(InpLots, _Symbol, 0.0, sl, tp, "Scalp FOREX Pro - Buy");
       AuditTradeResult("ENTRY",ok,before,started,AuditKey());
-      if(ok)
-         UpdateDashboard("Comprando...", clrLime);
+      if(ok && (trade.ResultRetcode()==TRADE_RETCODE_DONE || trade.ResultRetcode()==TRADE_RETCODE_DONE_PARTIAL))
+      { lastEntryTime=currentBarTime; UpdateDashboard("Comprando...", clrLime); }
       else
          PrintFormat("Falha na compra: ret=%d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription());
    }
@@ -815,8 +838,8 @@ void OnTick()
       MqlTick before={}; SymbolInfoTick(_Symbol,before); ulong started=GetMicrosecondCount();
       bool ok=trade.Sell(InpLots, _Symbol, 0.0, sl, tp, "Scalp FOREX Pro - Sell");
       AuditTradeResult("ENTRY",ok,before,started,AuditKey());
-      if(ok)
-         UpdateDashboard("Vendendo...", clrRed);
+      if(ok && (trade.ResultRetcode()==TRADE_RETCODE_DONE || trade.ResultRetcode()==TRADE_RETCODE_DONE_PARTIAL))
+      { lastEntryTime=currentBarTime; UpdateDashboard("Vendendo...", clrRed); }
       else
          PrintFormat("Falha na venda: ret=%d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription());
    }
